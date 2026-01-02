@@ -1,199 +1,219 @@
 #!/bin/bash
 
-# Tawssl - Core Logic v1.1
-# Clean & Simple Architecture
+#############################################
+# Tawssl - ArvanCloud SSL Generator v2.0
+# Clean Architecture - No Bugs
+#############################################
 
 # Colors
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-PC='\033[0m'
+C='\033[0;36m'
+G='\033[0;32m'
+R='\033[0;31m'
+Y='\033[1;33m'
+N='\033[0m'
 
 # Paths
 ACME_HOME="$HOME/.acme.sh"
 ACME_BIN="$ACME_HOME/acme.sh"
-TEMP_CERT_DIR="/tmp/taw-certs"
+CERT_DIR="/tmp/tawssl-certs"
 
-# -----------------------------------
-# Helper Functions
-# -----------------------------------
-log_info() { echo -e "${CYAN}[INFO]${PC} $1"; }
-log_ok() { echo -e "${GREEN}[OK]${PC} $1"; }
-log_err() { echo -e "${RED}[ERROR]${PC} $1"; }
+#############################################
+# Logging Functions
+#############################################
+info() { echo -e "${C}[INFO]${N} $1"; }
+ok() { echo -e "${G}[OK]${N} $1"; }
+err() { echo -e "${R}[ERROR]${N} $1"; }
 
-check_deps() {
-    local deps=("socat" "curl" "openssl")
-    for d in "${deps[@]}"; do
-        if ! command -v "$d" &> /dev/null; then
-            log_info "Installing $d..."
-            if command -v apt-get &>/dev/null; then apt-get update -qq && apt-get install -y -qq "$d"; 
-            elif command -v yum &>/dev/null; then yum install -y -q "$d"; fi
+#############################################
+# Install Dependencies
+#############################################
+install_deps() {
+    for pkg in socat curl openssl; do
+        if ! command -v $pkg &>/dev/null; then
+            info "Installing $pkg..."
+            if command -v apt-get &>/dev/null; then
+                apt-get update -qq && apt-get install -y -qq $pkg
+            elif command -v yum &>/dev/null; then
+                yum install -y -q $pkg
+            fi
         fi
     done
 }
 
+#############################################
+# Install acme.sh
+#############################################
 install_acme() {
     if [ ! -f "$ACME_BIN" ]; then
-        log_info "Installing acme.sh..."
-        curl -s https://get.acme.sh | sh -s email="admin@tawssl.com" >/dev/null 2>&1
+        info "Installing acme.sh..."
+        curl -s https://get.acme.sh | sh -s email=admin@tawssl.com &>/dev/null
+        [ -f "$ACME_HOME/acme.sh.env" ] && source "$ACME_HOME/acme.sh.env"
     fi
-     # Force source acme environment just in case
-    . "$ACME_HOME/acme.sh.env" >/dev/null 2>&1
     
-    "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1
-}
-
-show_keys() {
-    echo -e "\n${YELLOW}========================================================${PC}"
-    echo -e "${YELLOW}           📋 CERTIFICATES GENERATED 📋             ${PC}"
-    echo -e "${YELLOW}   (Copy these for your Panel or Node Installer)    ${PC}"
-    echo -e "${YELLOW}========================================================${PC}"
-
-    echo -e "\n${CYAN}--- BEGIN PUBLIC KEY (Certificate) ---${PC}"
-    if [ -f "$TEMP_CERT_DIR/certificate.crt" ]; then
-        cat "$TEMP_CERT_DIR/certificate.crt"
+    if [ -f "$ACME_BIN" ]; then
+        $ACME_BIN --set-default-ca --server letsencrypt &>/dev/null
     else
-        echo -e "${RED}Certificate file not found${PC}"
+        err "Failed to install acme.sh"
+        exit 1
     fi
-    echo -e "${CYAN}--- END PUBLIC KEY ---${PC}\n"
+}
 
-    echo -e "${RED}--- BEGIN PRIVATE KEY ---${PC}"
-    if [ -f "$TEMP_CERT_DIR/private.key" ]; then
-        cat "$TEMP_CERT_DIR/private.key"
-    else
-        echo -e "${RED}Private Key file not found${PC}"
-    fi
-    echo -e "${RED}--- END PRIVATE KEY ---${PC}\n"
+#############################################
+# Generate SSL Certificate
+#############################################
+generate_cert() {
+    echo ""
+    read -p "$(echo -e ${Y}Enter Domain \(e.g. example.com\): ${N})" DOMAIN
+    read -p "$(echo -e ${Y}Enter ArvanCloud API Key: ${N})" API_KEY
     
-    echo -e "${YELLOW}Use 'Public Key' for Panel/Node certificate field.${PC}"
-    echo -e "${YELLOW}Use 'Private Key' for Node private key field.${PC}"
-}
-
-install_pasargad() {
-    echo -e "\n${CYAN}Launching Pasargad Node Installer...${PC}"
-    echo -e "${YELLOW}NOTE: When asked for certificate, choose 'y' and PASTE the keys shown above.${PC}"
-    echo -e "Press Enter to start..."
-    read
-    sudo bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/pg-node.sh)" @ install
-}
-
-install_marzban() {
-    echo -e "\n${CYAN}Launching Marzban Node Installer...${PC}"
-    echo -e "${YELLOW}NOTE: When asked for certificate, choose 'y' and PASTE the keys shown above.${PC}"
-    echo -e "Press Enter to start..."
-    read
-    sudo bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install
-}
-
-suggest_install() {
-    echo -e "\n${YELLOW}========================================================${PC}"
-    echo -e "${CYAN}Do you want to install a Node/Panel on this server now?${PC}"
-    echo "1) Install Pasargad Node (Official Script)"
-    echo "2) Install Marzban Node"
-    echo "3) No, return to menu"
-    echo -ne "${YELLOW}Select [1-3]: ${PC}"
-    read I_CHOICE
+    export Arvan_Token="$API_KEY"
     
-    case $I_CHOICE in
-        1) install_pasargad ;;
-        2) install_marzban ;;
-        3) return ;;
-        *) return ;;
-    esac
-}
-
-generate_ssl() {
-    echo -e "${YELLOW}Enter Domain (e.g. example.com):${PC} "
-    read DOMAIN
-    echo -e "${YELLOW}Enter ArvanCloud API Key:${PC} "
-    read ARVAN_TOKEN
-
-    export Arvan_Token="$ARVAN_TOKEN"
-
-    # Aggressive Cleanup First!
-    log_info "Cleaning up any old configs for $DOMAIN..."
-    "$ACME_BIN" --remove -d "$DOMAIN" >/dev/null 2>&1
-    "$ACME_BIN" --remove -d "*.$DOMAIN" >/dev/null 2>&1
-    rm -rf "$ACME_HOME/${DOMAIN}_ecc"
-    rm -rf "$ACME_HOME/${DOMAIN}"
-
-    log_info "Requesting Wildcard SSL (RSA 4096)..."
-    # Keylength 4096 = RSA (Not ECC)
-    "$ACME_BIN" --issue --dns dns_arvan \
+    # Clean old certs
+    info "Cleaning old certificates for $DOMAIN..."
+    $ACME_BIN --remove -d "$DOMAIN" &>/dev/null
+    $ACME_BIN --remove -d "*.$DOMAIN" &>/dev/null
+    rm -rf "$ACME_HOME/${DOMAIN}"*
+    
+    # Issue new certificate
+    info "Requesting Wildcard SSL (RSA 4096) for *.$DOMAIN..."
+    $ACME_BIN --issue --dns dns_arvan \
         -d "$DOMAIN" \
         -d "*.$DOMAIN" \
         --keylength 4096 \
         --force
-
+    
     if [ $? -ne 0 ]; then
-        log_err "Failed to issue certificate. Check API Key or DNS."
-        echo -e "${YELLOW}Press Enter to return...${PC}"
-        read
+        err "Certificate issuance failed. Check your API key."
+        read -p "Press Enter to continue..."
         return 1
     fi
-
-    # Export to Temp Dir (Clean Copy)
-    rm -rf "$TEMP_CERT_DIR"
-    mkdir -p "$TEMP_CERT_DIR"
-
-    "$ACME_BIN" --install-cert -d "$DOMAIN" \
-        --cert-file      "$TEMP_CERT_DIR/certificate.crt" \
-        --key-file       "$TEMP_CERT_DIR/private.key" \
-        --reloadcmd      "true" >/dev/null 2>&1
-
-    log_ok "Certificate generated successfully in $TEMP_CERT_DIR"
     
-    show_keys
-    suggest_install
+    # Export certificates
+    rm -rf "$CERT_DIR"
+    mkdir -p "$CERT_DIR"
+    
+    $ACME_BIN --install-cert -d "$DOMAIN" \
+        --cert-file "$CERT_DIR/certificate.crt" \
+        --key-file "$CERT_DIR/private.key" \
+        --reloadcmd "true" &>/dev/null
+    
+    ok "Certificate generated successfully!"
+    
+    display_certs
+    offer_install
 }
 
-list_certs() {
-    log_info "Existing Certificates in acme.sh:"
-    if [ -f "$ACME_BIN" ]; then
-        "$ACME_BIN" --list
+#############################################
+# Display Certificates
+#############################################
+display_certs() {
+    echo ""
+    echo -e "${Y}========================================================${N}"
+    echo -e "${Y}           📋 CERTIFICATES READY 📋                    ${N}"
+    echo -e "${Y}========================================================${N}"
+    
+    echo ""
+    echo -e "${C}--- PUBLIC KEY (For Panel/Node) ---${N}"
+    if [ -f "$CERT_DIR/certificate.crt" ]; then
+        cat "$CERT_DIR/certificate.crt"
     else
-        echo "acme.sh not found."
+        err "Certificate file not found!"
     fi
-    echo -e "\n${YELLOW}Press Enter to return to menu...${PC}"
-    read
+    echo -e "${C}--- END PUBLIC KEY ---${N}"
+    
+    echo ""
+    echo -e "${R}--- PRIVATE KEY (For Node Only) ---${N}"
+    if [ -f "$CERT_DIR/private.key" ]; then
+        cat "$CERT_DIR/private.key"
+    else
+        err "Private key file not found!"
+    fi
+    echo -e "${R}--- END PRIVATE KEY ---${N}"
+    echo ""
 }
 
-# -----------------------------------
-# Main Menu
-# -----------------------------------
-show_menu() {
-    clear
-    echo -e "${CYAN}--- Tawssl Manager ---${PC}"
-    echo "1) Install New Wildcard SSL (ArvanCloud)"
-    echo "2) List Existing Certificates"
-    echo "3) Exit"
-    echo -ne "${YELLOW}Select [1-3]: ${PC}"
-    read CHOICE
-
-    case $CHOICE in
-        1) 
-            generate_ssl 
+#############################################
+# Offer Node Installation
+#############################################
+offer_install() {
+    echo -e "${Y}========================================================${N}"
+    echo -e "${C}Install a Node/Panel on this server?${N}"
+    echo "1) Pasargad Node"
+    echo "2) Marzban Node"
+    echo "3) No, return to menu"
+    echo ""
+    read -p "$(echo -e ${Y}Select [1-3]: ${N})" choice
+    
+    case $choice in
+        1)
+            echo ""
+            info "Launching Pasargad Node installer..."
+            echo -e "${Y}When asked for certificate, paste the PUBLIC KEY above.${N}"
+            echo -e "${Y}When asked for private key, paste the PRIVATE KEY above.${N}"
+            read -p "Press Enter to start..."
+            bash -c "$(curl -sL https://github.com/PasarGuard/scripts/raw/main/pg-node.sh)" @ install
             ;;
-        2) 
-            list_certs 
+        2)
+            echo ""
+            info "Launching Marzban Node installer..."
+            echo -e "${Y}When asked for certificate, paste the PUBLIC KEY above.${N}"
+            echo -e "${Y}When asked for private key, paste the PRIVATE KEY above.${N}"
+            read -p "Press Enter to start..."
+            bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install
             ;;
-        3) 
-            exit 0 
-            ;;
-        *) 
-            show_menu 
+        3)
+            return
             ;;
     esac
 }
 
-# -----------------------------------
-# Initialization
-# -----------------------------------
-check_deps
-install_acme
+#############################################
+# List Existing Certificates
+#############################################
+list_certs() {
+    echo ""
+    info "Existing certificates:"
+    if [ -f "$ACME_BIN" ]; then
+        $ACME_BIN --list
+    else
+        err "acme.sh not installed"
+    fi
+    echo ""
+    read -p "Press Enter to continue..."
+}
 
-# Loop menu
+#############################################
+# Main Menu
+#############################################
+show_menu() {
+    clear
+    echo -e "${C}╔════════════════════════════════════╗${N}"
+    echo -e "${C}║      Tawssl Manager v2.0          ║${N}"
+    echo -e "${C}╚════════════════════════════════════╝${N}"
+    echo ""
+    echo "1) Generate New Wildcard SSL"
+    echo "2) List Existing Certificates"
+    echo "3) Exit"
+    echo ""
+    read -p "$(echo -e ${Y}Select [1-3]: ${N})" choice
+    
+    case $choice in
+        1) generate_cert ;;
+        2) list_certs ;;
+        3) exit 0 ;;
+        *) show_menu ;;
+    esac
+}
+
+#############################################
+# Initialization & Main Loop
+#############################################
+info "Initializing Tawssl..."
+install_deps
+install_acme
+ok "Ready!"
+sleep 1
+
 while true; do
     show_menu
 done
