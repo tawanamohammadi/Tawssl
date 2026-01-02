@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Tawssl - Core Logic v1
+# Tawssl - Core Logic v1.1
 # Clean & Simple Architecture
 
 # Colors
@@ -38,50 +38,10 @@ install_acme() {
         log_info "Installing acme.sh..."
         curl -s https://get.acme.sh | sh -s email="admin@tawssl.com" >/dev/null 2>&1
     fi
-    "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1
-}
-
-generate_ssl() {
-    echo -e "${YELLOW}Enter Domain (e.g. example.com):${PC} "
-    read DOMAIN
-    echo -e "${YELLOW}Enter ArvanCloud API Key:${PC} "
-    read ARVAN_TOKEN
-
-    export Arvan_Token="$ARVAN_TOKEN"
-
-    # Aggressive Cleanup First!
-    log_info "Cleaning up any old configs for $DOMAIN..."
-    "$ACME_BIN" --remove -d "$DOMAIN" >/dev/null 2>&1
-    "$ACME_BIN" --remove -d "*.$DOMAIN" >/dev/null 2>&1
-    rm -rf "$ACME_HOME/${DOMAIN}_ecc"
-    rm -rf "$ACME_HOME/${DOMAIN}"
-
-    log_info "Requesting Wildcard SSL (RSA 4096)..."
-    # Keylength 4096 = RSA (Not ECC)
-    "$ACME_BIN" --issue --dns dns_arvan \
-        -d "$DOMAIN" \
-        -d "*.$DOMAIN" \
-        --keylength 4096 \
-        --force
-
-    if [ $? -ne 0 ]; then
-        log_err "Failed to issue certificate. Check API Key or DNS."
-        return 1
-    fi
-
-    # Export to Temp Dir (Clean Copy)
-    rm -rf "$TEMP_CERT_DIR"
-    mkdir -p "$TEMP_CERT_DIR"
-
-    "$ACME_BIN" --install-cert -d "$DOMAIN" \
-        --cert-file      "$TEMP_CERT_DIR/certificate.crt" \
-        --key-file       "$TEMP_CERT_DIR/private.key" \
-        --reloadcmd      "true" >/dev/null 2>&1
-
-    log_ok "Certificate generated successfully in $TEMP_CERT_DIR"
+     # Force source acme environment just in case
+    . "$ACME_HOME/acme.sh.env" >/dev/null 2>&1
     
-    show_keys
-    suggest_install
+    "$ACME_BIN" --set-default-ca --server letsencrypt >/dev/null 2>&1
 }
 
 show_keys() {
@@ -91,11 +51,19 @@ show_keys() {
     echo -e "${YELLOW}========================================================${PC}"
 
     echo -e "\n${CYAN}--- BEGIN PUBLIC KEY (Certificate) ---${PC}"
-    cat "$TEMP_CERT_DIR/certificate.crt"
+    if [ -f "$TEMP_CERT_DIR/certificate.crt" ]; then
+        cat "$TEMP_CERT_DIR/certificate.crt"
+    else
+        echo -e "${RED}Certificate file not found${PC}"
+    fi
     echo -e "${CYAN}--- END PUBLIC KEY ---${PC}\n"
 
     echo -e "${RED}--- BEGIN PRIVATE KEY ---${PC}"
-    cat "$TEMP_CERT_DIR/private.key"
+    if [ -f "$TEMP_CERT_DIR/private.key" ]; then
+        cat "$TEMP_CERT_DIR/private.key"
+    else
+        echo -e "${RED}Private Key file not found${PC}"
+    fi
     echo -e "${RED}--- END PRIVATE KEY ---${PC}\n"
     
     echo -e "${YELLOW}Use 'Public Key' for Panel/Node certificate field.${PC}"
@@ -134,7 +102,59 @@ suggest_install() {
         *) return ;;
     esac
 }
-    "$ACME_BIN" --list
+
+generate_ssl() {
+    echo -e "${YELLOW}Enter Domain (e.g. example.com):${PC} "
+    read DOMAIN
+    echo -e "${YELLOW}Enter ArvanCloud API Key:${PC} "
+    read ARVAN_TOKEN
+
+    export Arvan_Token="$ARVAN_TOKEN"
+
+    # Aggressive Cleanup First!
+    log_info "Cleaning up any old configs for $DOMAIN..."
+    "$ACME_BIN" --remove -d "$DOMAIN" >/dev/null 2>&1
+    "$ACME_BIN" --remove -d "*.$DOMAIN" >/dev/null 2>&1
+    rm -rf "$ACME_HOME/${DOMAIN}_ecc"
+    rm -rf "$ACME_HOME/${DOMAIN}"
+
+    log_info "Requesting Wildcard SSL (RSA 4096)..."
+    # Keylength 4096 = RSA (Not ECC)
+    "$ACME_BIN" --issue --dns dns_arvan \
+        -d "$DOMAIN" \
+        -d "*.$DOMAIN" \
+        --keylength 4096 \
+        --force
+
+    if [ $? -ne 0 ]; then
+        log_err "Failed to issue certificate. Check API Key or DNS."
+        echo -e "${YELLOW}Press Enter to return...${PC}"
+        read
+        return 1
+    fi
+
+    # Export to Temp Dir (Clean Copy)
+    rm -rf "$TEMP_CERT_DIR"
+    mkdir -p "$TEMP_CERT_DIR"
+
+    "$ACME_BIN" --install-cert -d "$DOMAIN" \
+        --cert-file      "$TEMP_CERT_DIR/certificate.crt" \
+        --key-file       "$TEMP_CERT_DIR/private.key" \
+        --reloadcmd      "true" >/dev/null 2>&1
+
+    log_ok "Certificate generated successfully in $TEMP_CERT_DIR"
+    
+    show_keys
+    suggest_install
+}
+
+list_certs() {
+    log_info "Existing Certificates in acme.sh:"
+    if [ -f "$ACME_BIN" ]; then
+        "$ACME_BIN" --list
+    else
+        echo "acme.sh not found."
+    fi
     echo -e "\n${YELLOW}Press Enter to return to menu...${PC}"
     read
 }
