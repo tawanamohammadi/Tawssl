@@ -75,11 +75,11 @@ generate_cert() {
     rm -rf "$ACME_HOME/${DOMAIN}"*
     
     # Issue new certificate
-    info "Requesting Wildcard SSL (RSA 4096) for *.$DOMAIN..."
+    info "Requesting Wildcard SSL (ECC-256) for *.$DOMAIN..."
     $ACME_BIN --issue --dns dns_arvan \
         -d "$DOMAIN" \
         -d "*.$DOMAIN" \
-        --keylength 4096 \
+        --keylength ec-256 \
         --force
     
     if [ $? -ne 0 ]; then
