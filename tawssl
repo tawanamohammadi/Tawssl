@@ -95,6 +95,7 @@ generate_cert() {
     $ACME_BIN --install-cert -d "$DOMAIN" \
         --cert-file "$CERT_DIR/certificate.crt" \
         --key-file "$CERT_DIR/private.key" \
+        --fullchain-file "$CERT_DIR/fullchain.crt" \
         --reloadcmd "true" &>/dev/null
     
     ok "Certificate generated successfully!"
@@ -114,8 +115,8 @@ display_certs() {
     
     echo ""
     echo -e "${C}--- PUBLIC KEY (For Panel/Node) ---${N}"
-    if [ -f "$CERT_DIR/certificate.crt" ]; then
-        cat "$CERT_DIR/certificate.crt"
+    if [ -f "$CERT_DIR/fullchain.crt" ]; then
+        cat "$CERT_DIR/fullchain.crt"
     else
         err "Certificate file not found!"
     fi
