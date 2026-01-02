@@ -173,8 +173,6 @@ show_menu() {
 
     case $CHOICE in
         1) 
-            check_deps
-            install_acme
             generate_ssl 
             ;;
         2) 
@@ -188,6 +186,12 @@ show_menu() {
             ;;
     esac
 }
+
+# -----------------------------------
+# Initialization
+# -----------------------------------
+check_deps
+install_acme
 
 # Loop menu
 while true; do
